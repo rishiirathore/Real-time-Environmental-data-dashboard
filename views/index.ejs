@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= title %></title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    /* Only keeping the necessary custom styles that can't be achieved with Tailwind */
+    @keyframes pulse {
+      0% { opacity: 1; }
+      50% { opacity: 0.3; }
+      100% { opacity: 1; }
+    }
+    
+    .real-time-pulse {
+      animation: pulse 2s infinite;
+    }
+  </style>
+</head>
+<body class="bg-gray-50 font-sans min-h-screen flex flex-col">
+  <header class="bg-blue-700 text-white sticky top-0 z-10 shadow-md">
+    <div class="container mx-auto px-4 py-3 md:py-4">
+      <div class="flex flex-col sm:flex-row justify-between items-center gap-2">
+        <h1 class="text-xl md:text-2xl font-bold">Environmental Data Dashboard</h1>
+        <div class="flex flex-wrap items-center justify-center sm:justify-end gap-4">
+          <div id="connectionStatus" class="flex items-center">
+            <span class="inline-block w-2.5 h-2.5 rounded-full bg-yellow-400 shadow mr-2"></span>
+            <span id="connectionText" class="text-xs sm:text-sm">Connecting...</span>
+          </div>
+          <div id="lastUpdated" class="text-xs sm:text-sm">
+            Last updated: --
+          </div>
+          <span id="realTimeIndicator" class="hidden bg-green-500 text-white text-xs px-2 py-0.5 rounded real-time-pulse">
+            LIVE
+          </span>
+        </div>
+      </div>
+    </div>
+  </header>
+  
+  <main class="container mx-auto p-4 flex-grow">
+    <% if (locals.error) { %>
+      <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">
+        <strong class="font-bold">Error!</strong>
+        <span class="block sm:inline"><%= error %></span>
+      </div>
+    <% } else { %>
+      <!-- Latest Readings Section -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-6">
+        <div class="bg-white rounded-lg shadow p-3 md:p-4">
+          <h3 class="text-xs md:text-sm font-medium text-gray-500">PM2.5</h3>
+          <p class="text-lg md:text-2xl font-semibold truncate" id="latestPM25"><%= data.latestReading ? data.latestReading['PM2.5'] : '--' %> μg/m³</p>
+        </div>
+        <div class="bg-white rounded-lg shadow p-3 md:p-4">
+          <h3 class="text-xs md:text-sm font-medium text-gray-500">PM10</h3>
+          <p class="text-lg md:text-2xl font-semibold truncate" id="latestPM10"><%= data.latestReading ? data.latestReading.PM10 : '--' %> μg/m³</p>
+        </div>
+        <div class="bg-white rounded-lg shadow p-3 md:p-4">
+          <h3 class="text-xs md:text-sm font-medium text-gray-500">Temperature</h3>
+          <p class="text-lg md:text-2xl font-semibold truncate" id="latestTemp"><%= data.latestReading ? data.latestReading.Temperature : '--' %> °C</p>
+        </div>
+        <div class="bg-white rounded-lg shadow p-3 md:p-4">
+          <h3 class="text-xs md:text-sm font-medium text-gray-500">Humidity</h3>
+          <p class="text-lg md:text-2xl font-semibold truncate" id="latestHumidity"><%= data.latestReading ? data.latestReading.Humidity : '--' %> %</p>
+        </div>
+      </div>
+      
+      <!-- Data Table Section -->
+      <div class="bg-white rounded-lg shadow p-4 mb-6">
+        <h3 class="text-base md:text-lg font-medium mb-2">Recent Readings</h3>
+        <div class="overflow-x-auto max-h-40 md:max-h-48">
+          <table class="min-w-full bg-white">
+            <thead class="sticky top-0">
+              <tr>
+                <th class="px-2 md:px-4 py-2 border-b border-gray-200 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                <th class="px-2 md:px-4 py-2 border-b border-gray-200 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time</th>
+                <th class="px-2 md:px-4 py-2 border-b border-gray-200 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">PM2.5</th>
+                <th class="px-2 md:px-4 py-2 border-b border-gray-200 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">PM10</th>
+                <th class="px-2 md:px-4 py-2 border-b border-gray-200 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Temp</th>
+                <th class="px-2 md:px-4 py-2 border-b border-gray-200 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Humid</th>
+                <th class="px-2 md:px-4 py-2 border-b border-gray-200 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Press</th>
+                <th class="px-2 md:px-4 py-2 border-b border-gray-200 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Wind</th>
+              </tr>
+            </thead>
+            <tbody id="dataTableBody" class="text-xs md:text-sm">
+              <% if (data.rawData) { data.rawData.forEach(row => { %>
+                <tr class="hover:bg-gray-50">
+                  <td class="px-2 md:px-4 py-1 md:py-2 border-b border-gray-200"><%= row.Date %></td>
+                  <td class="px-2 md:px-4 py-1 md:py-2 border-b border-gray-200"><%= row.Time %></td>
+                  <td class="px-2 md:px-4 py-1 md:py-2 border-b border-gray-200"><%= row['PM2.5'] %></td>
+                  <td class="px-2 md:px-4 py-1 md:py-2 border-b border-gray-200"><%= row.PM10 %></td>
+                  <td class="px-2 md:px-4 py-1 md:py-2 border-b border-gray-200"><%= row.Temperature %></td>
+                  <td class="px-2 md:px-4 py-1 md:py-2 border-b border-gray-200"><%= row.Humidity %></td>
+                  <td class="px-2 md:px-4 py-1 md:py-2 border-b border-gray-200"><%= row.Pressure %></td>
+                  <td class="px-2 md:px-4 py-1 md:py-2 border-b border-gray-200"><%= row['Wind Speed'] %></td>
+                </tr>
+              <% }); } %>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Charts Section -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 mb-6">
+        <div class="bg-white rounded-lg shadow p-3 md:p-4">
+          <h3 class="text-base md:text-lg font-medium mb-2">PM2.5 & PM10 Levels</h3>
+          <div class="h-48 md:h-64">
+            <canvas id="pmChart"></canvas>
+          </div>
+        </div>
+        <div class="bg-white rounded-lg shadow p-3 md:p-4">
+          <h3 class="text-base md:text-lg font-medium mb-2">Temperature & Humidity</h3>
+          <div class="h-48 md:h-64">
+            <canvas id="tempHumidityChart"></canvas>
+          </div>
+        </div>
+      </div>
+      
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 mb-6">
+        <div class="bg-white rounded-lg shadow p-3 md:p-4">
+          <h3 class="text-base md:text-lg font-medium mb-2">Pressure</h3>
+          <div class="h-48 md:h-64">
+            <canvas id="pressureChart"></canvas>
+          </div>
+        </div>
+        <div class="bg-white rounded-lg shadow p-3 md:p-4">
+          <h3 class="text-base md:text-lg font-medium mb-2">Wind Speed</h3>
+          <div class="h-48 md:h-64">
+            <canvas id="windChart"></canvas>
+          </div>
+        </div>
+      </div>
+      
+    <% } %>
+  </main>
+  
+  <footer class="bg-gray-800 text-white py-3 md:py-4 mt-auto">
+    <div class="container mx-auto px-4">
+      <p class="text-center text-xs md:text-sm">Real-Time Environmental Data Dashboard &copy; <%= new Date().getFullYear() %></p>
+    </div>
+  </footer>
+
+  <script>
+    // Connection status helpers
+    function setConnectionStatus(status) {
+      const statusElement = document.getElementById('connectionStatus').querySelector('span:first-child');
+      const textElement = document.getElementById('connectionText');
+      const realTimeIndicator = document.getElementById('realTimeIndicator');
+      
+      statusElement.className = 'inline-block w-2.5 h-2.5 rounded-full shadow mr-2';
+      
+      if (status === 'connected') {
+        statusElement.classList.add('bg-green-500');
+        textElement.textContent = 'Connected';
+        realTimeIndicator.classList.remove('hidden');
+      } else if (status === 'disconnected') {
+        statusElement.classList.add('bg-red-500');
+        textElement.textContent = 'Disconnected';
+        realTimeIndicator.classList.add('hidden');
+      } else {
+        statusElement.classList.add('bg-yellow-400');
+        textElement.textContent = 'Connecting...';
+        realTimeIndicator.classList.add('hidden');
+      }
+    }
+
+    // Initialize charts with server-side data
+    document.addEventListener('DOMContentLoaded', function() {
+      const initialData = <%- JSON.stringify(data || {}) %>;
+      
+      // Establish Socket.IO connection
+      const socket = io();
+      
+      // Connection status handling
+      socket.on('connect', function() {
+        setConnectionStatus('connected');
+      });
+      
+      socket.on('disconnect', function() {
+        setConnectionStatus('disconnected');
+      });
+      
+      socket.on('connect_error', function() {
+        setConnectionStatus('disconnected');
+      });
+      
+      // Initialize charts if we have data
+      if (initialData && initialData.timeLabels) {
+        initCharts(initialData);
+        updateLastUpdated();
+      }
+      
+      // Listen for initial data from server (for clients that connect after server start)
+      socket.on('initialData', function(data) {
+        if (data.timeLabels) {
+          if (pmChart) {
+            updateCharts(data);
+          } else {
+            initCharts(data);
+          }
+          updateLatestReadings(data);
+          updateDataTable(data);
+          updateLastUpdated();
+        }
+      });
+      
+      // Listen for real-time updates
+      socket.on('dataUpdate', function(data) {
+        if (data.timeLabels) {
+          updateCharts(data);
+          updateLatestReadings(data);
+          updateDataTable(data);
+          updateLastUpdated();
+        }
+      });
+    });
+  </script>
+  
+  <script src="dashboard.js"></script>
+</body>
+</html>
